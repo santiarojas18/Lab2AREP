@@ -3,10 +3,13 @@ package edu.escuelaing.arem.ASE.app;
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.HashMap;
 
 /**
  * Hello world!
@@ -14,7 +17,7 @@ import java.nio.file.Paths;
  */
 public class HttpServer
 {
-    public static void main(String[] args) throws IOException {
+    public static void main(String[] args) throws IOException, URISyntaxException {
         ServerSocket serverSocket = null;
         try {
             serverSocket = new ServerSocket(35000);
@@ -54,10 +57,12 @@ public class HttpServer
                 }
             }
 
-            if(uriStr.startsWith("/cliente")){
-                outputLine = httpFileSearcher("cliente.html");
-            }else{
-                outputLine = httpError();
+            URI fileUri = new URI(uriStr);
+
+            if(!uriStr.startsWith("/favicon")){
+                outputLine = httpFileSearcher(fileUri.getPath(), clientSocket);
+            } else {
+                outputLine = "";
             }
             out.println(outputLine);
 
@@ -68,29 +73,14 @@ public class HttpServer
         serverSocket.close();
     }
 
-    private static String httpError() {
-        String outputLine = "HTTP/1.1 400 Not Found\r\n"
-                + "Content-Type:text/html\r\n"
-                + "\r\n"
-                + "<!DOCTYPE html>\n"
-                + "<html>\n"
-                + "    <head>\n"
-                + "        <title>Error Not found</title>\n"
-                + "        <meta charset=\"UTF-8\">\n"
-                + "        <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n"
-                + "    </head>\n"
-                + "    <body>\n"
-                + "        <h1>Error</h1>\n"
-                + "    </body>\n";
-        return outputLine;
+    private static String httpError() throws IOException {
+        Path file = Paths.get("target/classes/public/error.html");
+        String contentType = Files.probeContentType(file);
 
-    }
-
-    public static String httpFileSearcher(String fileName){
-        String outputLine = "HTTP/1.1 200 OK\r\n"
-                + "Content-Type:text/html\r\n"
+        String outputLine = "HTTP/1.1 404 NOT FOUND\r\n"
+                + "Content-Type:" + contentType + "\r\n"
                 + "\r\n";
-        Path file = Paths.get("target/classes/public/" + fileName);
+
         Charset charset = Charset.forName("UTF-8");
         try (BufferedReader reader = Files.newBufferedReader(file, charset)) {
             String line = null;
@@ -101,7 +91,54 @@ public class HttpServer
         } catch (IOException x) {
             System.err.format("IOException: %s%n", x);
         }
+
+        return outputLine;
+
+    }
+
+    public static String httpFileSearcher(String fileName, Socket clientSocket) throws IOException {
+        Path file = Paths.get("target/classes/public" + fileName);
+        String contentType = Files.probeContentType(file);
+
+        String outputLine = "HTTP/1.1 200 OK\r\n"
+                + "Content-Type:" + contentType + "\r\n"
+                + "\r\n";
+
+        if (contentType.contains("image")) {
+            imagesReader(file, clientSocket.getOutputStream());
+            outputLine = "";
+        } else {
+            Charset charset = Charset.forName("UTF-8");
+            try (BufferedReader reader = Files.newBufferedReader(file, charset)) {
+                String line = null;
+                while ((line = reader.readLine()) != null) {
+                    System.out.println(line);
+                    outputLine = outputLine + line;
+                }
+            } catch (IOException x) {
+                System.err.format("IOException: %s%n", x);
+                outputLine = httpError();
+            }
+        }
         return outputLine;
     }
 
+    public static void imagesReader(Path file, OutputStream outputStream) throws IOException {
+        String contentType = Files.probeContentType(file);
+        try (InputStream inputStream = Files.newInputStream(file)) {
+            String header = "HTTP/1.1 200 OK\r\n"
+                    + "Content-Type:" + contentType + "\r\n"
+                    + "Content-Length: " + Files.size(file) + "\r\n"
+                    + "\r\n";
+            outputStream.write(header.getBytes());
+
+            byte[] buffer = new byte[8192];
+            int bytesRead;
+            while ((bytesRead = inputStream.read(buffer)) != -1) {
+                outputStream.write(buffer, 0, bytesRead);
+            }
+        }
+
+        outputStream.close();
+    }
 }
