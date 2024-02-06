@@ -9,7 +9,9 @@ import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Hello world!
@@ -17,7 +19,10 @@ import java.util.HashMap;
  */
 public class HttpServer
 {
+    private static ConcurrentHashMap<String, StringBuffer> cache;
     public static void main(String[] args) throws IOException, URISyntaxException {
+        cache = new ConcurrentHashMap<>();
+
         ServerSocket serverSocket = null;
         try {
             serverSocket = new ServerSocket(35000);
@@ -59,7 +64,15 @@ public class HttpServer
 
             URI fileUri = new URI(uriStr);
 
-            if(!uriStr.startsWith("/favicon")){
+            //EXTERNAL API CONNECTION
+            HttpConnectionExample connectionToApi = new HttpConnectionExample();
+            System.out.println(fileUri.getPath());
+
+            if (uriStr.startsWith("/movies/")) {
+                String[] pathAPI = fileUri.getPath().split("/");
+                String movieTitle = pathAPI[2];
+                outputLine = apiSearcher(connectionToApi, movieTitle);
+            } else if (!uriStr.startsWith("/favicon")){
                 outputLine = httpFileSearcher(fileUri.getPath(), clientSocket);
             } else {
                 outputLine = "";
@@ -78,7 +91,7 @@ public class HttpServer
         String contentType = Files.probeContentType(file);
 
         String outputLine = "HTTP/1.1 404 NOT FOUND\r\n"
-                + "Content-Type:" + contentType + "\r\n"
+                + "Content-Type:" + contentType + ";charset=utf-8\r\n"
                 + "\r\n";
 
         Charset charset = Charset.forName("UTF-8");
@@ -99,12 +112,12 @@ public class HttpServer
     public static String httpFileSearcher(String fileName, Socket clientSocket) throws IOException {
         Path file = Paths.get("target/classes/public" + fileName);
         String contentType = Files.probeContentType(file);
-
+        //System.out.println("EL CONTENT TYPE: " + contentType);
         String outputLine = "HTTP/1.1 200 OK\r\n"
-                + "Content-Type:" + contentType + "\r\n"
+                + "Content-Type:" + contentType + ";charset=utf-8\r\n"
                 + "\r\n";
 
-        if (contentType.contains("image")) {
+        if (contentType != null && contentType.contains("image")) {
             imagesReader(file, clientSocket.getOutputStream());
             outputLine = "";
         } else {
@@ -140,5 +153,29 @@ public class HttpServer
         }
 
         outputStream.close();
+    }
+
+    private static String apiSearcher(HttpConnectionExample connectionToApi, String movieTitle) throws IOException {
+        StringBuffer apiResponse = new StringBuffer();
+        String outputLine;
+        //Verifies if the movie title has not been requested
+        if (!cache.containsKey(movieTitle)) {
+            //External API request
+            try {
+                apiResponse = connectionToApi.getMovieInfo(movieTitle);
+                cache.put(movieTitle, apiResponse);
+            } catch (IOException e) {
+                System.err.format("IOException: %s%n", e);
+                outputLine = httpError();
+            }
+        } else {
+            apiResponse = cache.get(movieTitle);
+        }
+
+        outputLine = "HTTP/1.1 200 OK\r\n"
+                + "Content-Type:application/json; charset=utf-8\r\n"
+                + "\r\n"
+                + apiResponse.toString();
+        return outputLine;
     }
 }

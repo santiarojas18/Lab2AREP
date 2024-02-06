@@ -1,0 +1,12 @@
+h1 {
+  text-align: center;
+  color: red;
+  border-top: 0;
+  border-bottom: 4px dashed #ff0000;
+  padding: 10px;
+}
+
+#cortina {
+   width: 100vw;
+   height: 30vh;
+}
